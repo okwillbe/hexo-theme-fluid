@@ -1,9 +1,9 @@
-name: Limit PRs
+name: Limit PRs # 限制pr操作
 
 on:
-  pull_request:
+  pull_request: # 触发条件：当有PR创建或更新时
     branches:
-      - master
+      - master  # 仅针对目标分支是 master 的PR
 
 jobs:
   limit_master_pr:
@@ -14,5 +14,6 @@ jobs:
         id: limit_action
         uses: LukBukkit/action-pr-limits@v1
         with:
-          whitelist: |
-            develop
+          whitelist: | # 白名单配置
+            develop  # 只允许从 develop 分支向 master 提交PR 
+                     # 如果从其他分支（如 feature/*、hotfix/*或个人分支）向 master提交PR，这个工作流会自动失败，阻止合并
