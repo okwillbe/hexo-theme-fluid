@@ -3,6 +3,7 @@ name: Deploy Hexo Theme
 on:
   release:
     types: [created]
+  workflow_dispatch:   # 允许你在 Actions 页面手动点击运行，方便测试
 
 jobs:
   deploy:
