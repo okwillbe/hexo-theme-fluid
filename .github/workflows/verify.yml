@@ -5,7 +5,7 @@ on:
   pull_request:
     branches: [main, master]
   push:
-    branches: [main, master]
+    branches: [main, master, okwillbe-patch] # 临时加上你的开发分支进行测试
 
 jobs:
   verify:
