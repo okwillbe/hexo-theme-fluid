@@ -1,0 +1,75 @@
+name: Deploy Hexo Theme
+
+on:
+  release:
+    types: [published, created]
+  push:
+    branches:
+      - master
+      - okwillbe-patch
+  workflow_dispatch: # 显式开启手动触发
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. 自动识别版本号，防止 push 时变量为空导致报错
+      - name: Set Env
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            echo "TAG=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
+          else
+            echo "TAG=latest-dev" >> $GITHUB_ENV
+          fi
+
+      # 2. 获取构建产物
+      # 注意：如果 verify.yml 没在当前分支跑过，这一步会报错
+      - name: Get Build Artifact
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: verify.yml
+          workflow_conclusion: success
+          name: verified-build
+          path: dist
+          search_artifacts: true # 允许跨分支查找最近一次成功的产物
+
+      - name: Create Theme Archive
+        run: |
+          tar -czf "fluid-${{ env.TAG }}.tar.gz" -C dist .
+      
+      # 3. 只有真正发布版本时才上传到 Release 附件
+      - name: Upload to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "fluid-${{ env.TAG }}.tar.gz"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      # 4. SSH 部署（增加了文件存在检查）
+      - name: Deploy Theme
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: TAG
+          script: |
+            cd /home/hexo/blog
+            
+            # 只有 release 触发时才尝试 wget，否则你可能需要用 scp 传文件
+            if [ "${{ github.event_name }}" == "release" ]; then
+              wget -q "https://github.com/${{ github.repository }}/releases/download/$TAG/fluid-$TAG.tar.gz"
+            fi
+            
+            if [ -f "fluid-$TAG.tar.gz" ]; then
+              mkdir -p themes/fluid_new
+              tar -xzf "fluid-$TAG.tar.gz" -C themes/fluid_new
+              rm -rf themes/fluid
+              mv themes/fluid_new themes/fluid
+              rm -f "fluid-$TAG.tar.gz"
+              hexo clean && hexo generate
+            else
+              echo "跳过部署：未找到压缩包（如果是 push 触发，请确认为其配置了 scp 上传）"
+            fi
