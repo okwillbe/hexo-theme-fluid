@@ -1,0 +1,50 @@
+name: Deploy Hexo Theme
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Get Build Artifact
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: verify.yml
+          workflow_conclusion: success
+          name: verified-build
+      
+      - name: Create Theme Archive
+        run: |
+          tar -czf "fluid-${{ github.event.release.tag_name }}.tar.gz" -C dist .
+      
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "fluid-${{ github.event.release.tag_name }}.tar.gz"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Deploy Theme
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/hexo/blog
+            
+            # 下载并解压主题
+            wget -q https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/fluid-${{ github.event.release.tag_name }}.tar.gz
+            mkdir -p themes/fluid_new
+            tar -xzf fluid-${{ github.event.release.tag_name }}.tar.gz -C themes/fluid_new
+            
+            # 替换主题
+            rm -rf themes/fluid
+            mv themes/fluid_new themes/fluid
+            rm -f fluid-${{ github.event.release.tag_name }}.tar.gz
+            
+            # 重新生成站点
+            hexo clean && hexo generate
