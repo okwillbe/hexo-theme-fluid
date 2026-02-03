@@ -1,75 +1,70 @@
 ﻿name: Deploy Hexo Theme
 
 on:
-  release:
-    types: [published, created]
   push:
     branches:
       - master
       - okwillbe-patch
-  workflow_dispatch: # 鏄惧紡寮€鍚墜鍔ㄨЕ鍙?
+  release:
+    types: [published, created]
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
     steps:
-      # 1. 鑷姩璇嗗埆鐗堟湰鍙凤紝闃叉 push 鏃跺彉閲忎负绌哄鑷存姤閿?
-      - name: Set Env
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set Environment Variables
         run: |
           if [ "${{ github.event_name }}" == "release" ]; then
             echo "TAG=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
+            echo "IS_RELEASE=true" >> $GITHUB_ENV
           else
             echo "TAG=latest-dev" >> $GITHUB_ENV
+            echo "IS_RELEASE=false" >> $GITHUB_ENV
           fi
 
-      # 2. 鑾峰彇鏋勫缓浜х墿
-      # 娉ㄦ剰锛氬鏋?verify.yml 娌″湪褰撳墠鍒嗘敮璺戣繃锛岃繖涓€姝ヤ細鎶ラ敊
-      - name: Get Build Artifact
+      - name: Download Build Artifact
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: verify.yml
           workflow_conclusion: success
           name: verified-build
           path: dist
-          search_artifacts: true # 鍏佽璺ㄥ垎鏀煡鎵炬渶杩戜竴娆℃垚鍔熺殑浜х墿
+          search_artifacts: true
 
-      - name: Create Theme Archive
-        run: |
-          tar -czf "fluid-${{ env.TAG }}.tar.gz" -C dist .
-      
-      # 3. 鍙湁鐪熸鍙戝竷鐗堟湰鏃舵墠涓婁紶鍒?Release 闄勪欢
-      - name: Upload to Release
+      - name: Compress Theme
+        run: tar -czf "fluid-${{ env.TAG }}.tar.gz" -C dist .
+
+      - name: Upload Release Assets
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
           files: "fluid-${{ env.TAG }}.tar.gz"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-      # 4. SSH 閮ㄧ讲锛堝鍔犱簡鏂囦欢瀛樺湪妫€鏌ワ級
-      - name: Deploy Theme
+
+      - name: SSH Remote Deployment
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.REMOTE_HOST }}
           username: ${{ secrets.REMOTE_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: TAG
+          envs: TAG,IS_RELEASE
           script: |
             cd /home/hexo/blog
-            
-            # 鍙湁 release 瑙﹀彂鏃舵墠灏濊瘯 wget锛屽惁鍒欎綘鍙兘闇€瑕佺敤 scp 浼犳枃浠?
-            if [ "${{ github.event_name }}" == "release" ]; then
-              wget -q "https://github.com/${{ github.repository }}/releases/download/$TAG/fluid-$TAG.tar.gz"
+            mkdir -p themes/fluid_new
+            if [ "$IS_RELEASE" = "true" ]; then
+              wget -q "https://github.com/${{ github.repository }}/releases/download/$TAG/fluid-$TAG.tar.gz" -O "fluid-$TAG.tar.gz"
             fi
-            
             if [ -f "fluid-$TAG.tar.gz" ]; then
-              mkdir -p themes/fluid_new
               tar -xzf "fluid-$TAG.tar.gz" -C themes/fluid_new
               rm -rf themes/fluid
               mv themes/fluid_new themes/fluid
               rm -f "fluid-$TAG.tar.gz"
               hexo clean && hexo generate
             else
-              echo "璺宠繃閮ㄧ讲锛氭湭鎵惧埌鍘嬬缉鍖咃紙濡傛灉鏄?push 瑙﹀彂锛岃纭涓哄叾閰嶇疆浜?scp 涓婁紶锛?
+              echo "Deployment skipped: No package found."
             fi
