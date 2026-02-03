@@ -1,25 +1,22 @@
 name: Deploy Hexo Theme
 
 on:
-  release:
-    types: [published, created]
   push:
     branches:
       - master
       - okwillbe-patch
+  release:
+    types: [published, created]
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
     steps:
-      # 1. 检出代码 (基础操作)
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. 设置环境变量
-      - name: Set Env
+      - name: Set Environment Variables
         run: |
           if [ "${{ github.event_name }}" == "release" ]; then
             echo "TAG=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
@@ -29,8 +26,7 @@ jobs:
             echo "IS_RELEASE=false" >> $GITHUB_ENV
           fi
 
-      # 3. 获取构建产物 (来自另一个 workflow)
-      - name: Get Build Artifact
+      - name: Download Build Artifact
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: verify.yml
@@ -39,13 +35,10 @@ jobs:
           path: dist
           search_artifacts: true
 
-      # 4. 压缩产物
-      - name: Create Theme Archive
-        run: |
-          tar -czf "fluid-${{ env.TAG }}.tar.gz" -C dist .
+      - name: Compress Theme
+        run: tar -czf "fluid-${{ env.TAG }}.tar.gz" -C dist .
 
-      # 5. 如果是 Release，上传到附件
-      - name: Upload to Release
+      - name: Upload Release Assets
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
@@ -53,8 +46,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 6. SSH 远程部署
-      - name: Deploy Theme
+      - name: SSH Remote Deployment
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.REMOTE_HOST }}
@@ -64,24 +56,15 @@ jobs:
           script: |
             cd /home/hexo/blog
             mkdir -p themes/fluid_new
-            
-            # 逻辑优化：如果是 Release，从 GitHub 下载；如果是 Push，建议结合 scp (或直接从当前 runner 传过去)
-            # 这里为了简单，我们假设你如果是 push，直接在当前目录处理
             if [ "$IS_RELEASE" = "true" ]; then
               wget -q "https://github.com/${{ github.repository }}/releases/download/$TAG/fluid-$TAG.tar.gz" -O "fluid-$TAG.tar.gz"
-            else
-              echo "Push 触发：正在使用本地预处理文件..."
-              # 注意：如果是 push 触发，且你没有用 scp 将文件传到服务器，
-              # 这里的 deploy 逻辑会找不到文件。建议 push 模式也使用上传文件的 action。
             fi
-
             if [ -f "fluid-$TAG.tar.gz" ]; then
               tar -xzf "fluid-$TAG.tar.gz" -C themes/fluid_new
               rm -rf themes/fluid
               mv themes/fluid_new themes/fluid
               rm -f "fluid-$TAG.tar.gz"
               hexo clean && hexo generate
-              echo "部署成功: $TAG"
             else
-              echo "部署跳过：未发现压缩包。如果是 Push 触发，请确保文件已传输到服务器。"
+              echo "Deployment skipped: No package found."
             fi
