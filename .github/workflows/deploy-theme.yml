@@ -72,9 +72,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
-      # 4. SSH 部署到远程服务器(可选,需要配置 secrets)
+      # 4. 上传文件到远程服务器 (SCP)
+      - name: SCP Theme File
+        if: secrets.REMOTE_HOST != ''
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "fluid-${{ env.TAG }}.tar.gz"
+          target: "/home/hexo/blog/"
+
+      # 5. SSH 解压并部署
       - name: Deploy Theme
-        if: vars.ENABLE_SSH_DEPLOY == 'true' # 添加条件判断,避免缺少 secrets 时失败
+        if: secrets.REMOTE_HOST != ''
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.REMOTE_HOST }}
@@ -84,18 +95,20 @@ jobs:
           script: |
             cd /home/hexo/blog
             
-            # 仅在 release 事件时尝试从 GitHub 下载(否则需要通过 scp 上传文件)
-            if [ "${{ github.event_name }}" == "release" ]; then
-              wget -q "https://github.com/${{ github.repository }}/releases/download/$TAG/fluid-$TAG.tar.gz"
-            fi
-            
             if [ -f "fluid-$TAG.tar.gz" ]; then
+              echo "Found artifact, deploying..."
               mkdir -p themes/fluid_new
               tar -xzf "fluid-$TAG.tar.gz" -C themes/fluid_new
+              
+              # 安全替换旧主题
               rm -rf themes/fluid
               mv themes/fluid_new themes/fluid
               rm -f "fluid-$TAG.tar.gz"
+              
+              # 重新生成 hexo 静态文件
               hexo clean && hexo generate
+              echo "Deployment success!"
             else
-              echo "未找到压缩包,push 事件请确认是否通过 scp 上传"
+              echo "Error: Deployment artifact not found."
+              exit 1
             fi
